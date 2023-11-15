@@ -9,6 +9,8 @@ import {
 
 import { relations } from "drizzle-orm";
 
+import {ApiConfig, SchemaExporter} from "../cms/types/schema"
+
 // we want to add the below audit fields to all our tables, so we'll define it here
 // and append it to the rest of the schema for each table
 export const auditSchema = {
@@ -19,6 +21,16 @@ export const auditSchema = {
 /*
  **** TABLES ****
  */
+
+export const profileSchema = {
+  id: text("id").primaryKey(),
+  name: text("name")
+}
+
+export const profileTable = sqliteTable("profiles", {
+  ...profileSchema,
+  ...auditSchema,
+})
 
 // users
 export const userSchema = {
@@ -162,16 +174,63 @@ export const categoriesToPostsRelations = relations(
   })
 );
 
-export interface ApiConfig {
-  table: string;
-  route: string;
-}
+
 
 //create an entry for each table
-export const apiConfig: ApiConfig[] = [
-  { table: "users", route: "users" },
-  { table: "posts", route: "posts" },
-  { table: "categories", route: "categories" },
-  { table: "comments", route: "comments" },
-  { table: "categoriesToPosts", route: "categories-to-posts" },
-];
+export class ProjectSchemaExporter implements SchemaExporter{
+  getRoutes(): ApiConfig[] {
+    return [
+      { table: "users", route: "users" },
+      { table: "posts", route: "posts" },
+      { table: "categories", route: "categories" },
+      { table: "comments", route: "comments" },
+      { table: "categoriesToPosts", route: "categories-to-posts" },
+      { table: "profiles", route: "profiles"}
+    ]
+  }
+  lookupSchema(name: string) {
+    switch (name) {
+      case "users":
+        return userSchema;
+        break;
+      case "posts":
+        return postSchema;
+        break;
+      case "categories":
+        return categorySchema;
+        break;
+      case "comments":
+        return commentSchema;
+        break;
+      case "categoriesToPosts":
+        return categoriesToPostsSchema;
+        break;
+      case "profiles":
+        return profileSchema;
+        break;
+    }
+  }
+
+  lookupTable(name: string) {
+    switch (name) {
+      case "users":
+        return usersTable;
+        break;
+      case "posts":
+        return postsTable;
+        break;
+      case "categories":
+        return categoriesTable;
+        break;
+      case "comments":
+        return commentsTable;
+        break;
+      case "categoriesToPosts":
+        return categoriesToPostsTable;
+        break;
+      case "profiles":
+        return profileTable;
+        break;
+    }
+  }
+}

@@ -1,4 +1,5 @@
-import { ApiConfig, apiConfig } from "../../db/schema";
+import { ProjectSchemaExporter } from "../../db/schema";
+import { ApiConfig } from "../types/schema";
 import {
   getById,
   getContentType,
@@ -12,7 +13,7 @@ export const Layout = (props: {
   screenTitle?: string;
   newItemButtonText?: string;
 }) => {
-  const tables = apiConfig;
+  const tables = (new ProjectSchemaExporter()).getRoutes();
 
   return (
     <html lang="en" data-bs-theme="auto">

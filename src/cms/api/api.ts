@@ -15,7 +15,7 @@ import {
   addToKvCache,
 } from "../data/kv-data";
 import { Bindings } from "../types/bindings";
-import { apiConfig } from "../../db/schema";
+import { SchemaExporter } from "../types/schema";
 import { getD1DataByTable, getD1ByTableAndId } from "../data/d1-data";
 import { getForm } from "./forms";
 import qs from "qs";
@@ -27,307 +27,315 @@ import {
 } from "../data/data";
 import { clearInMemoryCache, getAllFromInMemoryCache } from "../data/cache";
 
-const api = new Hono<{ Bindings: Bindings }>();
 
-apiConfig.forEach((entry) => {
-  // console.log("setting route for " + entry.route);
+export function newAPI(schemaExporter: SchemaExporter) {
+  const api = new Hono<{ Bindings: Bindings }>();
 
-  //ie /v1/users
-  api.get(`/${entry.route}`, async (ctx) => {
-    const start = Date.now();
+  schemaExporter.getRoutes().forEach((entry) => {
+    // console.log("setting route for " + entry.route);
 
-    try {
+    //ie /v1/users
+    api.get(`/${entry.route}`, async (ctx) => {
+      const start = Date.now();
+
+      try {
+        var params = qs.parse(ctx.req.query());
+        params.limit = params.limit ?? 1000;
+        
+
+        const data = await getRecords(
+          ctx,
+          entry.table,
+          params,
+          ctx.req.url,
+          "fastest",
+          undefined
+        );
+
+        const end = Date.now();
+        const executionTime = end - start;
+
+        return ctx.json({ ...data, executionTime });
+      } catch (error) {
+        console.log(error);
+        return ctx.text(error);
+      }
+    });
+
+    //get single record
+    api.get(`/${entry.route}/:id`, async (ctx) => {
+      const start = Date.now();
+
+      const { includeContentType } = ctx.req.query();
+
+      const id = ctx.req.param("id");
       var params = qs.parse(ctx.req.query());
-      params.limit = params.limit ?? 1000;
-      ctx.env.D1DATA = ctx.env.D1DATA ?? ctx.env.__D1_BETA__D1DATA;
+      params.id = id;
+      
+
+      let source = "fastest";
+      if (includeContentType !== undefined) {
+        source = "d1";
+      }
 
       const data = await getRecords(
         ctx,
         entry.table,
         params,
         ctx.req.url,
-        "fastest",
+        source,
         undefined
       );
+
+      if (includeContentType !== undefined) {
+        data.contentType = getForm(schemaExporter, ctx, entry.table);
+      }
 
       const end = Date.now();
       const executionTime = end - start;
 
       return ctx.json({ ...data, executionTime });
-    } catch (error) {
-      console.log(error);
-      return ctx.text(error);
-    }
-  });
+    });
 
-  //get single record
-  api.get(`/${entry.route}/:id`, async (ctx) => {
-    const start = Date.now();
+    //create single record
+    //TODO: support batch inserts
+    api.post(`/${entry.route}`, async (ctx) => {
+      const content = await ctx.req.json();
 
-    const { includeContentType } = ctx.req.query();
+      const route = ctx.req.path.split("/")[2];
+      const table = schemaExporter.getRoutes().find((entry) => entry.route === route).table;
+      
 
-    const id = ctx.req.param("id");
-    var params = qs.parse(ctx.req.query());
-    params.id = id;
-    ctx.env.D1DATA = ctx.env.D1DATA ?? ctx.env.__D1_BETA__D1DATA;
+      content.table = table;
 
-    let source = "fastest";
-    if (includeContentType !== undefined) {
-      source = "d1";
-    }
+      try {
+        // console.log("posting new record content", JSON.stringify(content, null, 2));
 
-    const data = await getRecords(
-      ctx,
-      entry.table,
-      params,
-      ctx.req.url,
-      source,
-      undefined
-    );
+        const result = await insertRecord(
+          schemaExporter,
+          ctx.env.D1DATA,
+          ctx.env.KVDATA,
+          content
+        );
 
-    if (includeContentType !== undefined) {
-      data.contentType = getForm(ctx, entry.table);
-    }
+        return ctx.json(result.data, 201);
+      } catch (error) {
+        console.log("error posting content", error);
+        return ctx.text(error, 500);
+      }
+    });
 
-    const end = Date.now();
-    const executionTime = end - start;
+    //upadte single record
+    //TODO: support batch inserts
+    api.put(`/${entry.route}/:id`, async (ctx) => {
+      const payload = await ctx.req.json();
+      const id = ctx.req.param("id");
+      var content = {};
+      
 
-    return ctx.json({ ...data, executionTime });
-  });
+      content.data = payload.data;
 
-  //create single record
-  //TODO: support batch inserts
-  api.post(`/${entry.route}`, async (ctx) => {
-    const content = await ctx.req.json();
+      const route = ctx.req.path.split("/")[2];
+      const table = schemaExporter.getRoutes().find((entry) => entry.route === route).table;
 
-    const route = ctx.req.path.split("/")[2];
-    const table = apiConfig.find((entry) => entry.route === route).table;
-    ctx.env.D1DATA = ctx.env.D1DATA ?? ctx.env.__D1_BETA__D1DATA;
+      content.table = table;
+      content.id = id;
 
-    content.table = table;
+      try {
+        const result = await updateRecord(
+          schemaExporter,
+          ctx.env.D1DATA,
+          ctx.env.KVDATA,
+          content
+        );
 
-    try {
-      // console.log("posting new record content", JSON.stringify(content, null, 2));
+        return ctx.json(result.data, 200);
+      } catch (error) {
+        console.log("error updating content", error);
+        return ctx.text(error, 500);
+      }
+    });
 
-      const result = await insertRecord(
-        ctx.env.D1DATA,
-        ctx.env.KVDATA,
-        content
+    //delete
+    api.delete(`/${entry.route}/:id`, async (ctx) => {
+      const id = ctx.req.param("id");
+      const table = ctx.req.path.split("/")[2];
+      
+
+      const record = await getRecords(
+        ctx,
+        table,
+        { id },
+        ctx.req.path,
+        "fastest",
+        undefined
       );
 
-      return ctx.json(result.data, 201);
-    } catch (error) {
-      console.log("error posting content", error);
-      return ctx.text(error, 500);
-    }
+      console.log("delete content " + JSON.stringify(record, null, 2));
+
+      if (record) {
+        console.log("content found, deleting...");
+        const result = await deleteRecord(
+          schemaExporter,
+          ctx.env.D1DATA, ctx.env.KVDATA, {
+          id,
+          table: table,
+        });
+        // const kvDelete = await deleteKVById(ctx.env.KVDATA, id);
+        // const d1Delete = await deleteD1ByTableAndId(
+        //   ctx.env.D1DATA,
+        //   content.data.table,
+        //   content.data.id
+        // );
+        console.log("returning 204");
+        return ctx.text("", 204);
+      } else {
+        console.log("content not found");
+        return ctx.text("", 404);
+      }
+    });
   });
 
-  //upadte single record
-  //TODO: support batch inserts
-  api.put(`/${entry.route}/:id`, async (ctx) => {
-    const payload = await ctx.req.json();
-    const id = ctx.req.param("id");
-    var content = {};
-    ctx.env.D1DATA = ctx.env.D1DATA ?? ctx.env.__D1_BETA__D1DATA;
-
-    content.data = payload.data;
-
-    const route = ctx.req.path.split("/")[2];
-    const table = apiConfig.find((entry) => entry.route === route).table;
-
-    content.table = table;
-    content.id = id;
-
-    try {
-      const result = await updateRecord(
-        ctx.env.D1DATA,
-        ctx.env.KVDATA,
-        content
-      );
-
-      return ctx.json(result.data, 200);
-    } catch (error) {
-      console.log("error updating content", error);
-      return ctx.text(error, 500);
-    }
+  api.get("/ping", (c) => {
+    console.log("testing ping", Date());
+    return c.text(Date());
   });
 
-  //delete
-  api.delete(`/${entry.route}/:id`, async (ctx) => {
-    const id = ctx.req.param("id");
-    const table = ctx.req.path.split("/")[2];
-    ctx.env.D1DATA = ctx.env.D1DATA ?? ctx.env.__D1_BETA__D1DATA;
+  api.get("/kv-test", async (ctx) => {
+    const createdOn = new Date().getTime();
 
-    const record = await getRecords(
-      ctx,
-      table,
-      { id },
-      ctx.req.path,
-      "fastest",
-      undefined
+    await ctx.env.KVDATA.put(
+      "cache::kv-test-key",
+      JSON.stringify({ foo: "bar" }),
+      {
+        metadata: { createdOn },
+      }
     );
 
-    console.log("delete content " + JSON.stringify(record, null, 2));
+    const { value, metadata } = await ctx.env.KVDATA.getWithMetadata(
+      "kv-test-key",
+      { type: "json" }
+    );
 
-    if (record) {
-      console.log("content found, deleting...");
-      const result = await deleteRecord(ctx.env.D1DATA, ctx.env.KVDATA, {
-        id,
-        table: table,
-      });
-      // const kvDelete = await deleteKVById(ctx.env.KVDATA, id);
-      // const d1Delete = await deleteD1ByTableAndId(
-      //   ctx.env.D1DATA,
-      //   content.data.table,
-      //   content.data.id
-      // );
-      console.log("returning 204");
-      return ctx.text("", 204);
-    } else {
-      console.log("content not found");
-      return ctx.text("", 404);
-    }
+    return ctx.json({ value, metadata });
   });
-});
 
-api.get("/ping", (c) => {
-  console.log("testing ping", Date());
-  return c.text(Date());
-});
+  api.get("/kv-test2", async (ctx) => {
+    const cacheKey = "kv-test-key2";
+    const total = 100;
+    const d1Data = [{ a: "1", b: "2" }];
+    const data = { data: d1Data, source: "kv", total };
+    await addToKvCache(ctx, ctx.env.KVDATA, cacheKey, data);
 
-api.get("/kv-test", async (ctx) => {
-  const createdOn = new Date().getTime();
+    // await ctx.env.KVDATA.put(cacheKey, JSON.stringify({ foo: "bar" }), {
+    //   metadata: { createdOn: "123" },
+    // });
 
-  await ctx.env.KVDATA.put(
-    "cache::kv-test-key",
-    JSON.stringify({ foo: "bar" }),
-    {
-      metadata: { createdOn },
-    }
-  );
+    // const list = await ctx.env.KVDATA.list();
+    // console.log("list", list);
 
-  const { value, metadata } = await ctx.env.KVDATA.getWithMetadata(
-    "kv-test-key",
-    { type: "json" }
-  );
+    const { value, metadata } = await ctx.env.KVDATA.getWithMetadata(
+      `cache::${cacheKey}`,
+      {
+        type: "json",
+      }
+    );
 
-  return ctx.json({ value, metadata });
-});
+    return ctx.json({ value, metadata });
+  });
 
-api.get("/kv-test2", async (ctx) => {
-  const cacheKey = "kv-test-key2";
-  const total = 100;
-  const d1Data = [{ a: "1", b: "2" }];
-  const data = { data: d1Data, source: "kv", total };
-  await addToKvCache(ctx, ctx.env.KVDATA, cacheKey, data);
+  api.get("/kv-list", async (ctx) => {
+    const list = await ctx.env.KVDATA.list();
+    return ctx.json(list);
+  });
 
-  // await ctx.env.KVDATA.put(cacheKey, JSON.stringify({ foo: "bar" }), {
-  //   metadata: { createdOn: "123" },
-  // });
+  api.get("/data", async (c) => {
+    const data = await getDataListByPrefix(c.env.KVDATA, "");
+    return c.json(data);
+  });
 
-  // const list = await ctx.env.KVDATA.list();
-  // console.log("list", list);
+  api.get("/forms", async (c) => c.html(await loadForm(c)));
 
-  const { value, metadata } = await ctx.env.KVDATA.getWithMetadata(
-    `cache::${cacheKey}`,
-    {
-      type: "json",
-    }
-  );
+  api.get("/form-components/:route", async (c) => {
+    const route = c.req.param("route");
 
-  return ctx.json({ value, metadata });
-});
+    const table = schemaExporter.getRoutes().find((entry) => entry.route === route).table;
 
-api.get("/kv-list", async (ctx) => {
-  const list = await ctx.env.KVDATA.list();
-  return ctx.json(list);
-});
+    const ct = await getForm(schemaExporter, c.env.D1DATA, table);
+    return c.json(ct);
+  });
 
-api.get("/data", async (c) => {
-  const data = await getDataListByPrefix(c.env.KVDATA, "");
-  return c.json(data);
-});
+  api.post("/form-components", async (c) => {
+    const formComponents = await c.req.json();
 
-api.get("/forms", async (c) => c.html(await loadForm(c)));
+    console.log("formComponents-->", formComponents);
+    //put in kv
+    const result = await saveContentType(c.env.KVDATA, "site1", formComponents);
 
-api.get("/form-components/:route", async (c) => {
-  const route = c.req.param("route");
+    console.log("form put", result);
+    return c.text("Created!", 201);
+  });
 
-  const table = apiConfig.find((entry) => entry.route === route).table;
+  api.get("/cache/clear-all", async (ctx) => {
+    console.log("clearing cache");
+    await clearInMemoryCache();
+    await clearKVCache(ctx.env.KVDATA);
+    return ctx.text("in memory and kv caches cleared");
+  });
 
-  const ct = await getForm(c.env.D1DATA, table);
-  return c.json(ct);
-});
+  api.get("/cache/clear-in-memory", async (ctx) => {
+    console.log("clearing cache");
+    await clearInMemoryCache();
+    return ctx.text("in memory cache cleared");
+  });
 
-api.post("/form-components", async (c) => {
-  const formComponents = await c.req.json();
+  api.get("/cache/clear-kv", async (ctx) => {
+    console.log("clearing cache");
+    await clearKVCache(ctx.env.KVDATA);
+    return ctx.text("kv cache cleared");
+  });
 
-  console.log("formComponents-->", formComponents);
-  //put in kv
-  const result = await saveContentType(c.env.KVDATA, "site1", formComponents);
+  api.get("/cache/in-memory", async (ctx) => {
+    console.log("clearing cache");
+    const cacheItems = await getAllFromInMemoryCache();
+    return ctx.json(cacheItems);
+  });
 
-  console.log("form put", result);
-  return c.text("Created!", 201);
-});
+  api.get("/cache/kv", async (ctx) => {
+    const cacheItems = await getKVCache(ctx.env.KVDATA);
+    console.log("getting kv cache", cacheItems);
+    return ctx.json(cacheItems);
+  });
 
-api.get("/cache/clear-all", async (ctx) => {
-  console.log("clearing cache");
-  await clearInMemoryCache();
-  await clearKVCache(ctx.env.KVDATA);
-  return ctx.text("in memory and kv caches cleared");
-});
+  api.get("/cache/kv/:cacheKey", async (ctx) => {
+    const cacheKey = ctx.req.param("cacheKey");
+    const cacheItem = await getRecordFromKvCache(ctx.env.KVDATA, cacheKey);
+    console.log("getting kv cache", cacheItem);
+    return ctx.json(cacheItem);
+  });
 
-api.get("/cache/clear-in-memory", async (ctx) => {
-  console.log("clearing cache");
-  await clearInMemoryCache();
-  return ctx.text("in memory cache cleared");
-});
+  api.get("/kv", async (ctx) => {
+    const allItems = await getDataByPrefix(ctx.env.KVDATA, "", 2);
+    return ctx.json(allItems);
+  });
 
-api.get("/cache/clear-kv", async (ctx) => {
-  console.log("clearing cache");
-  await clearKVCache(ctx.env.KVDATA);
-  return ctx.text("kv cache cleared");
-});
+  api.get("/kv/:cacheKey", async (ctx) => {
+    const cacheKey = ctx.req.param("cacheKey");
+    console.log("getting kv cache", cacheKey);
 
-api.get("/cache/in-memory", async (ctx) => {
-  console.log("clearing cache");
-  const cacheItems = await getAllFromInMemoryCache();
-  return ctx.json(cacheItems);
-});
+    const cacheItem = await getRecordFromKvCache(
+      ctx.env.KVDATA,
+      "http://127.0.0.1:8788/admin/api/users"
+    );
+    console.log("getting kv cache", cacheItem);
+    return ctx.json(cacheItem);
+  });
 
-api.get("/cache/kv", async (ctx) => {
-  const cacheItems = await getKVCache(ctx.env.KVDATA);
-  console.log("getting kv cache", cacheItems);
-  return ctx.json(cacheItems);
-});
+  api.get("/kv/delete-all", async (ctx) => {
+    await clearAllKVRecords(ctx.env.KVDATA);
+    return ctx.text("ok");
+  });
 
-api.get("/cache/kv/:cacheKey", async (ctx) => {
-  const cacheKey = ctx.req.param("cacheKey");
-  const cacheItem = await getRecordFromKvCache(ctx.env.KVDATA, cacheKey);
-  console.log("getting kv cache", cacheItem);
-  return ctx.json(cacheItem);
-});
+  return api
 
-api.get("/kv", async (ctx) => {
-  const allItems = await getDataByPrefix(ctx.env.KVDATA, "", 2);
-  return ctx.json(allItems);
-});
-
-api.get("/kv/:cacheKey", async (ctx) => {
-  const cacheKey = ctx.req.param("cacheKey");
-  console.log("getting kv cache", cacheKey);
-
-  const cacheItem = await getRecordFromKvCache(
-    ctx.env.KVDATA,
-    "http://127.0.0.1:8788/admin/api/users"
-  );
-  console.log("getting kv cache", cacheItem);
-  return ctx.json(cacheItem);
-});
-
-api.get("/kv/delete-all", async (ctx) => {
-  await clearAllKVRecords(ctx.env.KVDATA);
-  return ctx.text("ok");
-});
-
-export { api };
+}

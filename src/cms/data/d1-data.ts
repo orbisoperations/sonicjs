@@ -1,20 +1,9 @@
 import { DrizzleD1Database, drizzle } from "drizzle-orm/d1";
 import { v4 as uuidv4 } from "uuid";
-import {
-  postsTable,
-  postSchema,
-  userSchema,
-  usersTable,
-  categorySchema,
-  commentSchema,
-  categoriesTable,
-  commentsTable,
-  categoriesToPostsTable,
-  categoriesToPostsSchema,
-} from "../../db/schema";
 import { DefaultLogger, LogWriter, eq } from "drizzle-orm";
 import { addToInMemoryCache, setCacheStatus } from "./cache";
 import { addToKvCache } from "./kv-data";
+import {SchemaExporter} from "../../db/schema"
 
 export async function getAllContent(db) {
   const { results } = await db.prepare("SELECT * FROM users").all();
@@ -66,13 +55,7 @@ export async function getD1ByTableAndId(db, table, id) {
   return results[0];
 }
 
-export async function insertUserTest(d1, data) {
-  const db = drizzle(d1);
-
-  return db.insert(usersTable).values(data).returning().get();
-}
-
-export async function insertD1Data(d1, kv, table, data) {
+export async function insertD1Data(exporter: SchemaExporter, d1, kv, table, data) {
   const db = drizzle(d1);
 
   const now = new Date().getTime();
@@ -80,13 +63,13 @@ export async function insertD1Data(d1, kv, table, data) {
   data.updatedOn = now;
   delete data.table;
 
-  const schmea = getRepoFromTable(table);
+  const schema = exporter.lookupTable(table);
   try {
-    // let sql = db.insert(schmea).values(data).getSQL();
-    if (!schmea.id) {
+    // let sql = db.insert(schema).values(data).getSQL();
+    if (!schema.id) {
       delete data.id;
     }
-    let result = await db.insert(schmea).values(data).returning().get();
+    let result = await db.insert(schema).values(data).returning().get();
     return result;
   } catch (error) {
     console.error(error);
@@ -94,22 +77,22 @@ export async function insertD1Data(d1, kv, table, data) {
   }
 }
 
-export async function deleteD1ByTableAndId(d1, table, id) {
+export async function deleteD1ByTableAndId(exporter: SchemaExporter, d1, table, id) {
   console.log("deleteD1ByTableAndId", table, id);
   const db = drizzle(d1);
 
-  const schmea = getRepoFromTable(table);
-  let sql = await db.delete(schmea).where(eq(schmea.id, id)).toSQL();
+  const schema = exporter.lookupTable(table);
+  let sql = await db.delete(schema).where(eq(schema.id, id)).toSQL();
 
-  let result = await db.delete(schmea).where(eq(schmea.id, id)).run();
+  let result = await db.delete(schema).where(eq(schema.id, id)).run();
 
   return result;
 }
 
-export async function updateD1Data(d1, table, data) {
+export async function updateD1Data(expoter: SchemaExporter, d1, table, data) {
   const db = drizzle(d1);
   const schemaTable = table ?? data.table;
-  const repo = getRepoFromTable(schemaTable);
+  const repo = expoter.lookupTable(schemaTable);
   const recordId = data.id;
   // delete data.table;
   if (data.data && data.data.id) {
@@ -142,47 +125,6 @@ export async function updateD1Data(d1, table, data) {
   // console.log("updating data result ", result);
 
   return { id } ?? result;
-}
-
-export function getSchemaFromTable(tableName) {
-  switch (tableName) {
-    case "users":
-      return userSchema;
-      break;
-    case "posts":
-      return postSchema;
-      break;
-    case "categories":
-      return categorySchema;
-      break;
-    case "comments":
-      return commentSchema;
-      break;
-    case "categoriesToPosts":
-      return categoriesToPostsSchema;
-      break;
-  }
-}
-
-export function getRepoFromTable(tableName) {
-  // console.log("getting schema", tableName);
-  switch (tableName) {
-    case "users":
-      return usersTable;
-      break;
-    case "posts":
-      return postsTable;
-      break;
-    case "categories":
-      return categoriesTable;
-      break;
-    case "comments":
-      return commentsTable;
-      break;
-    case "categoriesToPosts":
-      return categoriesToPostsTable;
-      break;
-  }
 }
 
 export function whereClauseBuilder(params) {

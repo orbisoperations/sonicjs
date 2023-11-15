@@ -17,7 +17,7 @@ import {
 
 import { loadApis } from "./pages/api";
 import { getRecords } from "../data/data";
-import { apiConfig } from "../../db/schema";
+import { ProjectSchemaExporter } from "../../db/schema";
 import qs from "qs";
 import { format, compareAsc } from "date-fns";
 import { getAllFromInMemoryCache, getFromInMemoryCache } from "../data/cache";
@@ -139,7 +139,7 @@ admin.get("/api/:route", async (ctx) => {
   var params = qs.parse(ctx.req.query());
   params.limit = params.limit ?? 1000;
 
-  const table = apiConfig.find((entry) => entry.route === route).table;
+  const table = new ProjectSchemaExporter().getRoutes().find((entry) => entry.route === route).table;
   ctx.env.D1DATA = ctx.env.D1DATA ?? ctx.env.__D1_BETA__D1DATA;
 
   const records = await getRecords(

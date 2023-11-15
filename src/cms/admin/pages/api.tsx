@@ -1,5 +1,6 @@
 import { desc } from "drizzle-orm";
-import { apiConfig } from "../../../db/schema";
+import { ApiConfig } from "../../types/schema";
+import { ProjectSchemaExporter } from "../../../db/schema";
 import { getById, getDataListByPrefix, saveKVData } from "../../data/kv-data";
 import { Layout } from "../theme";
 import { getD1DataByTable, getD1ByTableAndId } from "../../data/d1-data";
@@ -10,10 +11,10 @@ interface link {
 }
 
 export async function loadApis(ctx) {
-  const tables = apiConfig;
+  const tables = new ProjectSchemaExporter().getRoutes();
 
   let tableApis: link[] = [];
-  apiConfig.map((scehma) => {
+  tables.map((scehma) => {
     let link: link = {
       url: `/v1/${scehma.route}`,
       description: `get all records from the ${scehma.table} table`,

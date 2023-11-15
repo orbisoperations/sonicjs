@@ -1,4 +1,5 @@
-import { ApiConfig, apiConfig } from "../../../db/schema";
+import { ProjectSchemaExporter } from "../../../db/schema";
+import { ApiConfig } from "../../types/schema";
 import {
   getAllContent,
   getByIdAndTable,
@@ -46,7 +47,7 @@ export async function loadAdminTable(ctx) {
 
   // console.log("contentList-->", JSON.stringify(contentList, null, 2));
 
-  const tables = apiConfig;
+  const tables = new ProjectSchemaExporter().getRoutes();
   const tableList = tables.map((schmea) => {
     return {
       title: schmea.table,
@@ -67,7 +68,7 @@ export async function loadAdminTable(ctx) {
 export async function loadTableData(ctx, route) {
   // await saveKVData(ctx.env.KVDATA, 'site1', 'content', {title: '20230508a'});
   // console.log("loadTableData==>", route);
-  const table = apiConfig.find((entry) => entry.route === route).table;
+  const table = new ProjectSchemaExporter().getRoutes().find((entry) => entry.route === route).table;
 
   // const results = await getD1DataByTable(ctx.env.D1DATA, table, undefined);
 
@@ -233,7 +234,7 @@ export async function loadAdmin(ctx) {
 export async function loadEditContent(ctx, route, id) {
   // const content = await getD1ByTableAndId(ctx.env.D1DATA, table, id);
   // console.log("loadEditContent", id, content);
-  const table = apiConfig.find((entry) => entry.route === route).table;
+  const table = new ProjectSchemaExporter().getRoutes().find((entry) => entry.route === route).table;
 
   // console.log('loadEditContent content type', contentType)
 
@@ -252,7 +253,7 @@ export async function loadNewContent(ctx, route) {
   // const content = await getD1ByTableAndId(ctx.env.D1DATA, table, id);
   // console.log("loadEditContent", id, content);
 
-  const table = apiConfig.find((entry) => entry.route === route).table;
+  const table = new ProjectSchemaExporter().getRoutes().find((entry) => entry.route === route).table;
 
   console.log("loadNewContent", route, table);
 

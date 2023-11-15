@@ -1,15 +1,5 @@
 import { DrizzleD1Database, drizzle } from "drizzle-orm/d1";
 import { v4 as uuidv4 } from "uuid";
-import {
-  postsTable,
-  postSchema,
-  userSchema,
-  usersTable,
-  categorySchema,
-  commentSchema,
-  categoriesTable,
-  commentsTable,
-} from "../../db/schema";
 import { DefaultLogger, LogWriter, eq } from "drizzle-orm";
 import {
   addToInMemoryCache,
@@ -33,6 +23,7 @@ import {
   updateD1Data,
 } from "./d1-data";
 import { log } from "../util/logger";
+import { SchemaExporter } from "../types/schema";
 
 // export async function getRecordOld(d1, kv, id) {
 //   const cacheKey = addCachePrefix(id);
@@ -304,7 +295,7 @@ async function dataAddToInMemoryCache(
   }
 }
 
-export async function insertRecord(d1, kv, data) {
+export async function insertRecord(exporter: SchemaExporter, d1, kv, data) {
   const content = data;
   const id = uuidv4();
   const timestamp = new Date().getTime();
@@ -322,7 +313,7 @@ export async function insertRecord(d1, kv, data) {
   } finally {
     //then also save the content to sqlite for filtering, sorting, etc
     try {
-      const result = await insertD1Data(d1, kv, content.table, content.data);
+      const result = await insertD1Data(exporter, d1, kv, content.table, content.data);
       // console.log("insertD1Data --->", result);
       //expire cache
       await setCacheStatusInvalid();
@@ -340,7 +331,7 @@ export async function insertRecord(d1, kv, data) {
   return { code: 500, error };
 }
 
-export async function updateRecord(d1, kv, data) {
+export async function updateRecord(exporter: SchemaExporter, d1, kv, data) {
   const timestamp = new Date().getTime();
 
   try {
@@ -351,7 +342,7 @@ export async function updateRecord(d1, kv, data) {
   } finally {
     //then also save the content to sqlite for filtering, sorting, etc
     try {
-      const result = updateD1Data(d1, data.table, data);
+      const result = updateD1Data(exporter , d1, data.table, data);
       //expire cache
       await setCacheStatusInvalid();
       await clearKVCache(kv);
@@ -362,12 +353,12 @@ export async function updateRecord(d1, kv, data) {
   }
 }
 
-export async function deleteRecord(d1, kv, data) {
+export async function deleteRecord(exporter: SchemaExporter, d1, kv, data) {
   const timestamp = new Date().getTime();
 
   try {
     const kvResult = await deleteKVById(kv, data.id);
-    const d1Result = await deleteD1ByTableAndId(d1, data.table, data.id);
+    const d1Result = await deleteD1ByTableAndId(exporter, d1, data.table, data.id);
 
     await setCacheStatusInvalid();
     await clearKVCache(kv);

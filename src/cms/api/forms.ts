@@ -1,11 +1,11 @@
-import { getSchemaFromTable } from "../data/d1-data";
+import { SchemaExporter } from "../types/schema";
 
-export function getForm(ctx, table) {
+export function getForm(exporter: SchemaExporter, ctx, table) {
   let formFields = [];
 
   //TODO: amke dynamic
   // const schema = `${table}Schema`;
-  const schema = getSchemaFromTable(table);
+  const schema = exporter.lookupSchema(table);
 
   for (var field in schema) {
     const formField = getField(field);
